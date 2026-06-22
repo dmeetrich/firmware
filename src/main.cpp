@@ -181,6 +181,15 @@ void _setup_gpio() {}
 void _post_setup_gpio() __attribute__((weak));
 void _post_setup_gpio() {}
 
+void suspendAdvKeyboardPinMux() __attribute__((weak));
+void suspendAdvKeyboardPinMux() {}
+
+void resumeAdvKeyboardPinMux() __attribute__((weak));
+void resumeAdvKeyboardPinMux() {}
+
+void restoreAdvNrf24GpioPins() __attribute__((weak));
+void restoreAdvNrf24GpioPins() {}
+
 /*********************************************************************
  **  Function: setup_gpio
  **  Setup GPIO pins
@@ -559,3 +568,14 @@ void loop() {
     vTaskDelay(10 / portTICK_PERIOD_MS);
 }
 #endif
+
+void suspendSpectrumRadioIsolation() {
+    suspendAdvKeyboardPinMux();
+    restoreAdvNrf24GpioPins();
+    if (xHandle != nullptr) { vTaskSuspend(xHandle); }
+}
+
+void resumeSpectrumRadioIsolation() {
+    if (xHandle != nullptr) { vTaskResume(xHandle); }
+    resumeAdvKeyboardPinMux();
+}

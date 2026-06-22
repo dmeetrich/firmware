@@ -3,6 +3,7 @@
 #include <Adafruit_TCA8418.h>
 #include <Keyboard.h>
 #include <Wire.h>
+#include <driver/gpio.h>
 #include <interface.h>
 
 // Cardputer and 1.1 keyboard
@@ -10,6 +11,8 @@ Keyboard_Class Keyboard;
 // TCA8418 keyboard controller for ADV variant
 Adafruit_TCA8418 tca;
 bool UseTCA8418 = false; // Set to true to use TCA8418 (Cardputer ADV)
+
+static volatile uint8_t advKeyboardPinMuxSuspendCount = 0;
 
 // Keyboard state variables
 bool fn_key_pressed = false;
@@ -32,10 +35,23 @@ char getKeyChar(uint8_t row, uint8_t col) {
     return keyVal;
 }
 
-void setI2cPinsTooutput() {
+void restoreNrf24GpioPins() {
     Wire1.end();
+    gpio_pullup_dis((gpio_num_t)TCA8418_SDA_PIN);
+    gpio_pullup_dis((gpio_num_t)TCA8418_SCL_PIN);
+    gpio_pulldown_dis((gpio_num_t)TCA8418_SDA_PIN);
+    gpio_pulldown_dis((gpio_num_t)TCA8418_SCL_PIN);
     pinMode(TCA8418_SDA_PIN, OUTPUT);
     pinMode(TCA8418_SCL_PIN, OUTPUT);
+    digitalWrite(TCA8418_SCL_PIN, HIGH);
+    digitalWrite(TCA8418_SDA_PIN, LOW);
+}
+
+void restoreAdvNrf24GpioPins() { restoreNrf24GpioPins(); }
+
+void setI2cPinsTooutput() {
+    Wire1.end();
+    restoreNrf24GpioPins();
 }
 
 void setI2cPinsToI2c() {
@@ -105,6 +121,25 @@ void IRAM_ATTR gpio_isr_handler(void *arg) {
     // static long i = 0;
     // Serial.printf("interrupt %ld\n", i++);
 }
+
+void suspendAdvKeyboardPinMux() {
+    if (!UseTCA8418) return;
+    const uint8_t previousCount = advKeyboardPinMuxSuspendCount;
+    advKeyboardPinMuxSuspendCount++;
+    if (previousCount > 0) return;
+    detachInterrupt(digitalPinToInterrupt(TCA8418_INT_PIN));
+    kb_interrupt = false;
+    restoreNrf24GpioPins();
+}
+
+void resumeAdvKeyboardPinMux() {
+    if (!UseTCA8418 || advKeyboardPinMuxSuspendCount == 0) return;
+    advKeyboardPinMuxSuspendCount--;
+    if (advKeyboardPinMuxSuspendCount > 0) return;
+    attachInterruptArg(digitalPinToInterrupt(TCA8418_INT_PIN), gpio_isr_handler, nullptr, CHANGE);
+    restoreNrf24GpioPins();
+}
+
 void _post_setup_gpio() {
     // Initialize TCA8418 I2C keyboard controller
     Serial.println("DEBUG: Cardputer ADV - Initializing TCA8418 keyboard");
@@ -143,8 +178,8 @@ void _post_setup_gpio() {
 
     tca.matrix(7, 8);
     tca.flush();
-    pinMode(11, INPUT);
-    attachInterruptArg(digitalPinToInterrupt(11), gpio_isr_handler, nullptr, CHANGE);
+    pinMode(TCA8418_INT_PIN, INPUT);
+    attachInterruptArg(digitalPinToInterrupt(TCA8418_INT_PIN), gpio_isr_handler, nullptr, CHANGE);
     tca.enableInterrupts();
     setI2cPinsTooutput();
 }
@@ -209,10 +244,10 @@ void InputHandler(void) {
         bool keyPulse = false;
         keyStroke key;
 
-        if (kb_interrupt || digitalRead(11) == LOW) {
-            if (!kb_interrupt && digitalRead(11) == LOW) {
-                detachInterrupt(digitalPinToInterrupt(11));
-                attachInterruptArg(digitalPinToInterrupt(11), gpio_isr_handler, nullptr, CHANGE);
+        if (!advKeyboardPinMuxSuspendCount && (kb_interrupt || digitalRead(TCA8418_INT_PIN) == LOW)) {
+            if (!kb_interrupt && digitalRead(TCA8418_INT_PIN) == LOW) {
+                detachInterrupt(digitalPinToInterrupt(TCA8418_INT_PIN));
+                attachInterruptArg(digitalPinToInterrupt(TCA8418_INT_PIN), gpio_isr_handler, nullptr, CHANGE);
                 Serial.println("Forcing keyboard interrupt, Restoring Interruptions.");
                 kb_interrupt = true;
             }

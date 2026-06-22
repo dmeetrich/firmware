@@ -28,5 +28,8 @@ NRF24_MODE nrf_setMode();
 
 bool nrf_start(NRF24_MODE mode);
 
+bool nrf_rebindRadio();
+bool nrf_verifyRadioLink();
+
 void nrf_info();
 #endif

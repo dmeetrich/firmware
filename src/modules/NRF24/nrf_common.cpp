@@ -1,9 +1,70 @@
 #include "nrf_common.h"
 #include "../../core/mykeyboard.h"
+#include <interface.h>
 
 RF24 NRFradio(bruceConfigPins.NRF24_bus.io0, bruceConfigPins.NRF24_bus.cs);
 HardwareSerial NRFSerial = HardwareSerial(2); // Uses UART2 for External NRF's
 SPIClass *NRFSPI;
+
+static SPIClass *selectNrfSpiBus() {
+    if (bruceConfigPins.NRF24_bus.mosi == (gpio_num_t)TFT_MOSI &&
+        bruceConfigPins.NRF24_bus.mosi != GPIO_NUM_NC) {
+#if TFT_MOSI > 0
+        return &tft.getSPIinstance();
+#else
+        return &SPI;
+#endif
+    }
+    if (bruceConfigPins.NRF24_bus.mosi == bruceConfigPins.SDCARD_bus.mosi) { return &sdcardSPI; }
+    if (bruceConfigPins.NRF24_bus.mosi == bruceConfigPins.CC1101_bus.mosi &&
+        bruceConfigPins.NRF24_bus.mosi != bruceConfigPins.SDCARD_bus.mosi) {
+        return &CC_NRF_SPI;
+    }
+    return &SPI;
+}
+
+static void deselectSharedSpiChipSelects() {
+    if (bruceConfigPins.CC1101_bus.cs != GPIO_NUM_NC) {
+        pinMode(bruceConfigPins.CC1101_bus.cs, OUTPUT);
+        digitalWrite(bruceConfigPins.CC1101_bus.cs, HIGH);
+    }
+    if (bruceConfigPins.LoRa_bus.cs != GPIO_NUM_NC) {
+        pinMode(bruceConfigPins.LoRa_bus.cs, OUTPUT);
+        digitalWrite(bruceConfigPins.LoRa_bus.cs, HIGH);
+    }
+    if (bruceConfigPins.SDCARD_bus.cs != GPIO_NUM_NC) {
+        pinMode(bruceConfigPins.SDCARD_bus.cs, OUTPUT);
+        digitalWrite(bruceConfigPins.SDCARD_bus.cs, HIGH);
+    }
+}
+
+bool nrf_rebindRadio() {
+    restoreAdvNrf24GpioPins();
+    deselectSharedSpiChipSelects();
+    pinMode(bruceConfigPins.NRF24_bus.cs, OUTPUT);
+    digitalWrite(bruceConfigPins.NRF24_bus.cs, HIGH);
+    pinMode(bruceConfigPins.NRF24_bus.io0, OUTPUT);
+    digitalWrite(bruceConfigPins.NRF24_bus.io0, LOW);
+
+    NRFSPI = selectNrfSpiBus();
+    NRFSPI->begin(
+        (int8_t)bruceConfigPins.NRF24_bus.sck,
+        (int8_t)bruceConfigPins.NRF24_bus.miso,
+        (int8_t)bruceConfigPins.NRF24_bus.mosi
+    );
+    delay(10);
+    return NRFradio.begin(
+        NRFSPI,
+        rf24_gpio_pin_t(bruceConfigPins.NRF24_bus.io0),
+        rf24_gpio_pin_t(bruceConfigPins.NRF24_bus.cs)
+    );
+}
+
+bool nrf_verifyRadioLink() {
+    NRFradio.setChannel(42);
+    delayMicroseconds(500);
+    return NRFradio.getChannel() == 42;
+}
 
 void nrf_info() {
     tft.fillScreen(bruceConfig.bgColor);
@@ -45,32 +106,14 @@ bool nrf_start(NRF24_MODE mode) {
     };
 
     if (!CHECK_NRF_SPI(mode)) return result;
+    restoreAdvNrf24GpioPins();
+    deselectSharedSpiChipSelects();
     pinMode(bruceConfigPins.NRF24_bus.cs, OUTPUT);
     digitalWrite(bruceConfigPins.NRF24_bus.cs, HIGH);
     pinMode(bruceConfigPins.NRF24_bus.io0, OUTPUT);
     digitalWrite(bruceConfigPins.NRF24_bus.io0, LOW);
 
-    if (bruceConfigPins.NRF24_bus.mosi == (gpio_num_t)TFT_MOSI &&
-        bruceConfigPins.NRF24_bus.mosi != GPIO_NUM_NC) { // (T_EMBED), CORE2 and others
-#if TFT_MOSI > 0 // condition for Headless and 8bit displays (no SPI bus)
-        NRFSPI = &tft.getSPIinstance();
-#else
-        NRFSPI = &SPI;
-#endif
-
-    } else if (bruceConfigPins.NRF24_bus.mosi == bruceConfigPins.SDCARD_bus.mosi) {
-        // CC1101 shares SPI with SDCard (Cardputer and CYDs)
-
-        NRFSPI = &sdcardSPI;
-    } else if (bruceConfigPins.NRF24_bus.mosi == bruceConfigPins.CC1101_bus.mosi &&
-               bruceConfigPins.NRF24_bus.mosi != bruceConfigPins.SDCARD_bus.mosi) {
-        // Smoochie board shares CC1101 and NRF24 SPI bus with different CS pins at
-        // the same time, different from StickCs that uses the same Bus, but one at a
-        // time (same CS Pin)
-        NRFSPI = &CC_NRF_SPI;
-    } else {
-        NRFSPI = &SPI;
-    }
+    NRFSPI = selectNrfSpiBus();
     NRFSPI->begin(
         (int8_t)bruceConfigPins.NRF24_bus.sck,
         (int8_t)bruceConfigPins.NRF24_bus.miso,

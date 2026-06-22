@@ -60,6 +60,12 @@ void goToDeepSleep();
 **********************************************************************/
 void checkReboot();
 
+void suspendAdvKeyboardPinMux() __attribute__((weak));
+void resumeAdvKeyboardPinMux() __attribute__((weak));
+void restoreAdvNrf24GpioPins() __attribute__((weak));
+void suspendSpectrumRadioIsolation() __attribute__((weak));
+void resumeSpectrumRadioIsolation() __attribute__((weak));
+
 /***************************************************************************************
 ** Function name: isCharging()
 ** location: interface.cpp
