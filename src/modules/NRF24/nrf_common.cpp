@@ -28,6 +28,10 @@ void nrf_info() {
 
 bool nrf_start(NRF24_MODE mode) {
     bool result = false;
+    if (bruceConfigPins.CC1101_bus.cs != GPIO_NUM_NC) {
+        pinMode(bruceConfigPins.CC1101_bus.cs, OUTPUT);
+        digitalWrite(bruceConfigPins.CC1101_bus.cs, HIGH);
+    }
     if (mode == NRF_MODE_DISABLED) return false;
 
     if (CHECK_NRF_UART(mode)) {

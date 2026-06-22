@@ -32,6 +32,17 @@ char getKeyChar(uint8_t row, uint8_t col) {
     return keyVal;
 }
 
+void setI2cPinsTooutput() {
+    Wire1.end();
+    pinMode(TCA8418_SDA_PIN, OUTPUT);
+    pinMode(TCA8418_SCL_PIN, OUTPUT);
+}
+
+void setI2cPinsToI2c() {
+    Wire1.begin(TCA8418_SDA_PIN, TCA8418_SCL_PIN);
+    delay(5);
+}
+
 int handleSpecialKeys(uint8_t row, uint8_t col, bool pressed) {
     char keyVal = _key_value_map[row][col].value_first;
     switch (keyVal) {
@@ -126,8 +137,8 @@ void _post_setup_gpio() {
         Keyboard.begin();
         return;
     }
-    bruceConfigPins.gps_bus.rx = (gpio_num_t)15;
-    bruceConfigPins.gps_bus.tx = (gpio_num_t)13;
+    bruceConfigPins.gps_bus.rx = (gpio_num_t)1;
+    bruceConfigPins.gps_bus.tx = (gpio_num_t)2;
     bruceConfigPins.gpsBaudrate = 115200;
 
     tca.matrix(7, 8);
@@ -135,6 +146,7 @@ void _post_setup_gpio() {
     pinMode(11, INPUT);
     attachInterruptArg(digitalPinToInterrupt(11), gpio_isr_handler, nullptr, CHANGE);
     tca.enableInterrupts();
+    setI2cPinsTooutput();
 }
 
 /*********************************************************************
@@ -204,6 +216,8 @@ void InputHandler(void) {
                 Serial.println("Forcing keyboard interrupt, Restoring Interruptions.");
                 kb_interrupt = true;
             }
+
+            setI2cPinsToI2c();
 
             while (tca.available() > 0) {
                 int keyEvent = tca.getEvent();
@@ -329,6 +343,7 @@ void InputHandler(void) {
             tca.writeRegister(TCA8418_REG_INT_STAT, 1);
             int intstat = tca.readRegister(TCA8418_REG_INT_STAT);
             if ((intstat & 0x01) == 0) { kb_interrupt = false; }
+            setI2cPinsTooutput();
         }
 
         unsigned long now = millis();
@@ -468,6 +483,8 @@ void checkReboot() {}
 void _setup_codec_speaker(bool enable) {
     if (!UseTCA8418) return;
 
+    setI2cPinsToI2c();
+
     static constexpr const uint8_t enabled_bulk_data[] = {
         2, 0x00, 0x80, // 0x00 RESET/  CSM POWER ON
         2, 0x01, 0xB5, // 0x01 CLOCK_MANAGER/ MCLK=BCLK
@@ -482,6 +499,7 @@ void _setup_codec_speaker(bool enable) {
     static constexpr const uint8_t disabled_bulk_data[] = {0};
 
     i2c_bulk_write(&Wire1, ES8311_ADDR, enable ? enabled_bulk_data : disabled_bulk_data);
+    setI2cPinsTooutput();
 }
 
 /*********************************************************************
@@ -491,8 +509,9 @@ void _setup_codec_speaker(bool enable) {
 **********************************************************************/
 void _setup_codec_mic(bool enable) {
     if (!UseTCA8418) return;
-    // Set microfone pin for ADV
     mic_bclk_pin = (gpio_num_t)41;
+
+    setI2cPinsToI2c();
 
     static constexpr const uint8_t enabled_bulk_data[] = {
         2, 0x00, 0x80, // 0x00 RESET/  CSM POWER ON
@@ -519,4 +538,5 @@ void _setup_codec_mic(bool enable) {
     };
 
     i2c_bulk_write(&Wire1, ES8311_ADDR, enable ? enabled_bulk_data : disabled_bulk_data);
+    setI2cPinsTooutput();
 }
